@@ -228,10 +228,6 @@ void Panel::WrongPassword(int timeout) {
     sleep(timeout);
     ResetPasswd();
     OnExpose();
-    // The message should stay on the screen even after the password field is
-    // cleared, methinks. I don't like this solution, but it works.
-    SlimDrawString8(draw, &msgcolor, msgfont, msg_x, msg_y, message,
-                    &msgshadowcolor, shadowXOffset, shadowYOffset);
     XSync(Dpy, True);
     XftDrawDestroy(draw);
 }
@@ -276,36 +272,7 @@ unsigned long Panel::GetColor(const char* colorname) {
     return color.pixel;
 }
 
-void Panel::Cursor(int visible) {
-    const char* text;
-    int xx, yy, y2, cheight;
-    const char* txth = "Wj"; // used to get cursor height
-
-    text = HiddenPasswdBuffer.c_str();
-    xx = input_pass_x;
-    yy = input_pass_y;
-
-    XGlyphInfo extents;
-    XftTextExtents8(Dpy, font, (XftChar8*)txth, strlen(txth), &extents);
-    cheight = extents.height;
-    y2 = yy - extents.y + extents.height;
-    XftTextExtents8(Dpy, font, (XftChar8*)text, strlen(text), &extents);
-    xx += extents.width;
-
-    if(visible == SHOW) {
-        xx += viewport.x;
-        yy += viewport.y;
-        y2 += viewport.y;
-
-        XSetForeground(Dpy, TextGC,
-                       GetColor(cfg->getOption("input_color").c_str()));
-        XDrawLine(Dpy, Win, TextGC,
-                  xx+1, yy-cheight,
-                  xx+1, y2);
-    } else {
-        ApplyBackground(Rectangle(xx+1, yy-cheight, 1, y2-(yy-cheight)+1));
-    }
-}
+void Panel::Cursor(int visible) {}
 
 void Panel::EventHandler() {
     XEvent event;
@@ -331,6 +298,12 @@ void Panel::OnExpose(void) {
     XftDraw *draw = XftDrawCreate(Dpy, Win,
                         DefaultVisual(Dpy, Scr), DefaultColormap(Dpy, Scr));
     ApplyBackground();
+
+    XGlyphInfo extents;
+    XftTextExtents8(Dpy, font, reinterpret_cast<const XftChar8*>(HiddenPasswdBuffer.c_str()),
+                    HiddenPasswdBuffer.length(), &extents);
+    int maxLength = extents.width;
+
     if (input_pass_x != input_name_x || input_pass_y != input_name_y) {
         SlimDrawString8(draw, &inputcolor, font, input_name_x, input_name_y,
                         NameBuffer,
@@ -342,7 +315,7 @@ void Panel::OnExpose(void) {
                         inputShadowXOffset, inputShadowYOffset);
     } else { //single input mode
 		SlimDrawString8(draw, &inputcolor, font,
-						input_pass_x, input_pass_y,
+						input_pass_x - maxLength / 2, input_pass_y,
 						HiddenPasswdBuffer,
 						&inputshadowcolor,
 						inputShadowXOffset, inputShadowYOffset);
@@ -425,12 +398,16 @@ bool Panel::OnKeyPress(XEvent& event) {
                         formerString.length(), &extents);
         int maxLength = extents.width;
 
-        ApplyBackground(Rectangle(input_pass_x - 3, input_pass_y - maxHeight - 3,
+        ApplyBackground(Rectangle(input_pass_x - 3 - maxLength / 2, input_pass_y - maxHeight - 3,
                                   maxLength + 6, maxHeight + 6));
     }
 
     if (fieldTextChanged) {
-        SlimDrawString8 (draw, &inputcolor, font, input_pass_x, input_pass_y,
+        XftTextExtents8(Dpy, font, reinterpret_cast<const XftChar8*>(HiddenPasswdBuffer.c_str()),
+                        HiddenPasswdBuffer.length(), &extents);
+        int maxLength = extents.width;
+
+        SlimDrawString8 (draw, &inputcolor, font, input_pass_x - maxLength / 2, input_pass_y,
                          HiddenPasswdBuffer,
                          &inputshadowcolor,
                          inputShadowXOffset, inputShadowYOffset);
@@ -444,7 +421,6 @@ bool Panel::OnKeyPress(XEvent& event) {
 // Draw welcome and "enter username" message
 void Panel::ShowText() {
     string cfgX, cfgY;
-    string user_msg = "User: ";
     XGlyphInfo extents;
 
     bool singleInputMode =
@@ -507,12 +483,6 @@ void Panel::ShowText() {
         }
     }
     XftDrawDestroy(draw);
-
-    // If only the password box is visible, draw the user name somewhere too
-    user_msg += GetName();
-    int show_username = Cfg::string2int(cfg->getOption("show_username").c_str());
-    if (singleInputMode && show_username)
-		Message(user_msg);
 }
 
 void Panel::SlimDrawString8(XftDraw *d, XftColor *color, XftFont *font,
